@@ -1,0 +1,323 @@
+// Milestone 1 schema — just the tables needed for auth, business creation, and roles.
+// Invoice, reconciliation, filing, and AI tables from the full architecture doc
+// get added in later migrations as those milestones are built.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BusinessType {
+  PRIVATE_LIMITED
+  PARTNERSHIP
+  PROPRIETORSHIP
+  LLP
+  PUBLIC_LIMITED
+}
+
+enum FilingFrequency {
+  MONTHLY
+  QUARTERLY
+}
+
+enum BusinessRole {
+  OWNER
+  ACCOUNTANT
+  ADMIN
+}
+
+enum BusinessStatus {
+  ACTIVE
+  SUSPENDED
+  CHURNED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+
+  businessLinks BusinessUser[]
+  resolvedReconciliations ReconciliationResult[]
+  approvedFilings Filing[]
+  aiConversations AiConversation[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Business {
+  id                     String          @id @default(uuid())
+  businessName           String          @map("business_name")
+  businessType           BusinessType    @map("business_type")
+  gstin                  String          @unique
+  pan                    String
+  filingFrequency        FilingFrequency @map("filing_frequency")
+  complianceHealthScore  Int             @default(100) @map("compliance_health_score")
+  status                 BusinessStatus  @default(ACTIVE)
+  createdAt              DateTime        @default(now()) @map("created_at")
+
+  users     BusinessUser[]
+  invoices     Invoice[]
+  integrations Integration[]
+  gstReturnEntries GstReturnEntry[]
+  reconciliationResults ReconciliationResult[]
+  filings Filing[]
+  aiConversations AiConversation[]
+  notifications Notification[]
+
+  @@map("businesses")
+}
+
+// Join table: which users belong to which business, and with what role.
+// This is the table every permission check in the app is built on.
+model BusinessUser {
+  id         String       @id @default(uuid())
+  businessId String       @map("business_id")
+  userId     String       @map("user_id")
+  role       BusinessRole
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId])
+  @@map("business_users")
+}
+
+// Every important action gets recorded here — required for compliance software,
+// and invaluable for your own debugging once things are live.
+enum IntegrationProvider {
+  TALLY
+  ZOHO_BOOKS
+  QUICKBOOKS
+  BUSY
+  BANK
+  GST_PORTAL
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+}
+
+enum InvoiceDirection {
+  SALES
+  PURCHASE
+}
+
+enum InvoiceSource {
+  TALLY
+  ZOHO_BOOKS
+  QUICKBOOKS
+  BUSY
+  MANUAL_UPLOAD
+}
+
+model Integration {
+  id                   String              @id @default(uuid())
+  businessId           String              @map("business_id")
+  provider             IntegrationProvider
+  status               IntegrationStatus   @default(DISCONNECTED)
+  // For machine-to-machine providers like Tally, a local sync agent authenticates
+  // with this key instead of a normal user login - see apiKeyAuth middleware.
+  apiKeyHash           String?             @map("api_key_hash")
+  // For real OAuth2 providers (Zoho Books, QuickBooks) - encrypted at rest in
+  // a real deployment, never stored in plain text like this in production.
+  accessTokenEncrypted  String?             @map("access_token_encrypted")
+  refreshTokenEncrypted String?             @map("refresh_token_encrypted")
+  tokenExpiresAt        DateTime?           @map("token_expires_at")
+  // Zoho/QuickBooks both scope data under an "organization"/"realm" id per company.
+  externalOrgId         String?             @map("external_org_id")
+  lastSyncedAt         DateTime?           @map("last_synced_at")
+  createdAt            DateTime            @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, provider])
+  @@map("integrations")
+}
+
+enum ReconciliationStatus {
+  MATCHED
+  AMOUNT_MISMATCH
+  MISSING_IN_BOOKS
+  MISSING_IN_RETURN
+  DUPLICATE
+  WRONG_GST_RATE
+}
+
+// What the government's own systems say a supplier reported (from GSTR-2A/2B).
+// For now this is populated by manual/mock upload - Milestone 5 replaces that
+// with a real pull through a licensed GSP, per the architecture doc.
+model GstReturnEntry {
+  id                    String   @id @default(uuid())
+  businessId            String   @map("business_id")
+  invoiceNumber         String   @map("invoice_number")
+  supplierGstin         String?  @map("supplier_gstin")
+  reportedTaxableValue  Decimal  @map("reported_taxable_value")
+  reportedGstAmount     Decimal  @map("reported_gst_amount")
+  reportedGstRate       Decimal  @map("reported_gst_rate")
+  returnPeriod          String   @map("return_period") // e.g. "2026-07"
+  fetchedAt             DateTime @default(now()) @map("fetched_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  reconciliationResults ReconciliationResult[]
+
+  @@map("gst_return_entries")
+}
+
+model ReconciliationResult {
+  id                String               @id @default(uuid())
+  businessId        String               @map("business_id")
+  invoiceId         String?              @map("invoice_id")
+  gstReturnEntryId  String?              @map("gst_return_entry_id")
+  status            ReconciliationStatus
+  differenceAmount  Decimal?             @map("difference_amount")
+  detectedAt        DateTime             @default(now()) @map("detected_at")
+  resolved          Boolean              @default(false)
+  resolvedBy        String?              @map("resolved_by")
+  resolutionNote    String?              @map("resolution_note")
+
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invoice        Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  gstReturnEntry GstReturnEntry? @relation(fields: [gstReturnEntryId], references: [id], onDelete: Cascade)
+  resolvedByUser User?           @relation(fields: [resolvedBy], references: [id])
+
+  @@map("reconciliation_results")
+}
+
+enum FilingReturnType {
+  GSTR_1
+  GSTR_3B
+}
+
+enum FilingStatus {
+  DRAFT
+  READY_FOR_REVIEW
+  APPROVED
+  SUBMITTED
+  FILED
+  REJECTED
+}
+
+// A prepared return, ready for a human to review before anything is sent
+// anywhere. preparedData holds the computed summary shown on the review
+// screen (totals, ITC at risk, etc.) - see filing.service.ts for how it's built.
+model Filing {
+  id           String           @id @default(uuid())
+  businessId   String           @map("business_id")
+  returnType   FilingReturnType @map("return_type")
+  period       String           @map("period") // e.g. "2026-07"
+  status       FilingStatus     @default(DRAFT)
+  preparedData Json             @map("prepared_data")
+  approvedBy   String?          @map("approved_by")
+  approvedAt   DateTime?        @map("approved_at")
+  submittedAt  DateTime?        @map("submitted_at")
+  gstnArn      String?          @map("gstn_arn")
+  dueDate      DateTime         @map("due_date")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  approvedByUser User?    @relation(fields: [approvedBy], references: [id])
+
+  @@unique([businessId, returnType, period])
+  @@map("filings")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+model AiConversation {
+  id         String   @id @default(uuid())
+  businessId String   @map("business_id")
+  userId     String   @map("user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id                String      @id @default(uuid())
+  conversationId    String      @map("conversation_id")
+  role              MessageRole
+  content           String
+  // Lets a message "point at" a specific invoice, so the frontend can link
+  // straight from the AI's answer to the invoice it's talking about.
+  relatedInvoiceId  String?     @map("related_invoice_id")
+  createdAt         DateTime    @default(now()) @map("created_at")
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("ai_messages")
+}
+
+enum NotificationType {
+  DEADLINE_REMINDER
+  MISMATCH_ALERT
+  COMPLIANCE_WARNING
+  FILING_CONFIRMATION
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+model Notification {
+  id         String              @id @default(uuid())
+  businessId String              @map("business_id")
+  userId     String              @map("user_id")
+  type       NotificationType
+  channel    NotificationChannel
+  message    String
+  sentAt     DateTime?           @map("sent_at")
+  read       Boolean             @default(false)
+  createdAt  DateTime            @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model Invoice {
+  id                      String            @id @default(uuid())
+  businessId              String            @map("business_id")
+  invoiceNumber           String            @map("invoice_number")
+  direction               InvoiceDirection
+  supplierOrCustomerName  String            @map("supplier_or_customer_name")
+  supplierGstin           String?           @map("supplier_gstin")
+  invoiceDate             DateTime          @map("invoice_date")
+  taxableValue            Decimal           @map("taxable_value")
+  gstRate                 Decimal           @map("gst_rate")
+  gstAmount               Decimal           @map("gst_amount")
+  totalAmount             Decimal           @map("total_amount")
+  source                  InvoiceSource
+  rawFileUrl              String?           @map("raw_file_url")
+  createdAt               DateTime          @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  reconciliationResults ReconciliationResult[]
+
+  // The same invoice number can never be imported twice for the same business +
+  // direction - this is the first, simplest line of defence against duplicates,
+  // ahead of the smarter reconciliation engine built in Milestone 3.
+  @@unique([businessId, invoiceNumber, direction])
+  @@map("invoices")
+}
+
