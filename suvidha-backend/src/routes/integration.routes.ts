@@ -64,17 +64,7 @@ integrationRouter.post(
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        businessId: req.params.businessId,
-        userId: req.user!.userId,
-        action: 'integration_connected',
-        targetType: 'integration',
-        targetId: integration.id,
-        metadata: { provider: parsed.data.provider },
-      },
-    });
-
+   
     return res.status(201).json({
       integration: { id: integration.id, provider: integration.provider, status: integration.status },
       // rawApiKey is returned ONLY in this single response - it can't be retrieved again.
@@ -108,15 +98,7 @@ integrationRouter.delete(
       data: { status: IntegrationStatus.DISCONNECTED, apiKeyHash: null },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        businessId: req.params.businessId,
-        userId: req.user!.userId,
-        action: 'integration_disconnected',
-        targetType: 'integration',
-        targetId: req.params.id,
-      },
-    });
+   
 
     return res.json({ message: 'Integration disconnected' });
   }

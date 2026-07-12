@@ -158,17 +158,7 @@ filingRouter.post(
       data: { status: 'FILED', submittedAt: new Date(), gstnArn: mockArn },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        businessId: req.params.businessId,
-        userId: req.user!.userId,
-        action: 'filing_submitted',
-        targetType: 'filing',
-        targetId: filing.id,
-        metadata: { note: 'Mock submission - no real GSTN integration yet (Milestone 5)', mockArn },
-      },
-    });
-
+    
     const owners = await prisma.businessUser.findMany({
       where: { businessId: req.params.businessId, role: { in: ['OWNER', 'ADMIN'] } },
       include: { user: true },

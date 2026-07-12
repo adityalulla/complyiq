@@ -96,17 +96,7 @@ businessRouter.patch(
       data: parsed.data,
     });
 
-    await prisma.auditLog.create({
-      data: {
-        businessId: business.id,
-        userId: req.user!.userId,
-        action: 'business_updated',
-        targetType: 'business',
-        targetId: business.id,
-        metadata: parsed.data,
-      },
-    });
-
+    
     return res.json(business);
   }
 );
@@ -180,17 +170,7 @@ businessRouter.post(
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        businessId: req.params.businessId,
-        userId: req.user!.userId,
-        action: 'user_invited',
-        targetType: 'business_user',
-        targetId: link.id,
-        metadata: { invitedEmail: parsed.data.email, role: parsed.data.role },
-      },
-    });
-
+    
     return res.status(201).json({ message: 'User added to business', role: link.role });
   }
 );
@@ -219,17 +199,7 @@ businessRouter.patch(
       data: { role: parsed.data.role },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        businessId: req.params.businessId,
-        userId: req.user!.userId,
-        action: 'user_role_changed',
-        targetType: 'business_user',
-        targetId: link.id,
-        metadata: { newRole: parsed.data.role, targetUserId: req.params.userId },
-      },
-    });
-
+  
     return res.json({ message: 'Role updated', role: link.role });
   }
 );
