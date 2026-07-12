@@ -32,7 +32,7 @@ integrationRouter.post(
 
     const existing = await prisma.integration.findUnique({
       where: {
-        businessId_provider: { businessId: req.params.businessId, provider: parsed.data.provider },
+        businessId_provider: { businessId: String(req.params.businessId), provider: parsed.data.provider },
       },
     });
     if (existing && existing.status === 'CONNECTED') {
@@ -53,11 +53,11 @@ integrationRouter.post(
 
     const integration = await prisma.integration.upsert({
       where: {
-        businessId_provider: { businessId: req.params.businessId, provider: parsed.data.provider },
+        businessId_provider: { businessId: String(req.params.businessId), provider: parsed.data.provider },
       },
       update: { status: IntegrationStatus.CONNECTED, apiKeyHash: apiKeyHash ?? undefined },
       create: {
-        businessId: req.params.businessId,
+        businessId: String(req.params.businessId),
         provider: parsed.data.provider,
         status: IntegrationStatus.CONNECTED,
         apiKeyHash: apiKeyHash ?? undefined,
@@ -80,7 +80,7 @@ integrationRouter.get(
   requireRole('OWNER', 'ACCOUNTANT', 'ADMIN'),
   async (req, res) => {
     const integrations = await prisma.integration.findMany({
-      where: { businessId: req.params.businessId },
+      where: {  businessId: String(req.params.businessId)},
       select: { id: true, provider: true, status: true, lastSyncedAt: true },
     });
     return res.json(integrations);
@@ -143,7 +143,7 @@ integrationRouter.get(
       access_type: 'offline', // needed to get a refresh token back, not just a short-lived access token
       // NOTE: for production, sign/encode businessId + a nonce here instead of
       // passing it raw, so the callback can't be forged by guessing a businessId.
-      state: req.params.businessId,
+      state: String(req.params.businessId),
     });
     return res.json({ authorizationUrl: `${ZOHO_AUTH_BASE}?${params.toString()}` });
   }
@@ -218,7 +218,7 @@ integrationRouter.get(
       scope: 'com.intuit.quickbooks.accounting',
       redirect_uri: process.env.QUICKBOOKS_REDIRECT_URI,
       response_type: 'code',
-      state: req.params.businessId, // same CSRF caveat as the Zoho flow above
+     state: String(req.params.businessId), // same CSRF caveat as the Zoho flow above
     });
     return res.json({ authorizationUrl: `${QUICKBOOKS_AUTH_BASE}?${params.toString()}` });
   }
@@ -321,7 +321,7 @@ integrationRouter.post(
       return res.status(400).json({ error: parsed.error.errors[0].message });
     }
 
-    const { businessId } = req.params;
+    const businessId = String(req.params.businessId);
     let created = 0;
     let skipped = 0;
 

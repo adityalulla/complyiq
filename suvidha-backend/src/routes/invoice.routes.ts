@@ -82,16 +82,7 @@ invoiceRouter.post(
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        businessId,
-        userId: req.user!.userId,
-        action: 'invoice_uploaded',
-        targetType: 'invoice',
-        targetId: invoice.id,
-      },
-    });
-
+    
     return res.status(201).json(invoice);
   }
 );
